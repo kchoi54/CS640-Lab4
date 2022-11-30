@@ -30,6 +30,7 @@ import net.floodlightcontroller.devicemanager.IDeviceService;
 import net.floodlightcontroller.linkdiscovery.ILinkDiscoveryListener;
 import net.floodlightcontroller.linkdiscovery.ILinkDiscoveryService;
 import net.floodlightcontroller.routing.Link;
+import net.floodlightcontroller.packet.IPv4;
 
 import org.openflow.util.HexString;
 import org.openflow.protocol.OFMatch;
@@ -227,17 +228,32 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 	}
 
 	/**
-	 * Install rule to given host using shortest path routes.
+	 * Install rule to given host and switch attached.
 	 * @author kj
 	 */
 	private void installRule(Host host)
 	{
 		IOFSwitch sw = host.getSwitch();
 		Map<Long, IOFSwitch> switches = this.getSwitches();
+		
+		//add host to the instructions
+		OFMatch match = matchFromHost(host); 
+		OFAction action = new OFActionOutput(host.getPort());
+		OFInstruction instruction = new OFInstructionApplyActions(Arrays.asList(action));
+		SwitchCommands.installRule(sw, this.table, SwitchCommands.DEFAULT_PRIORITY, match, Arrays.asList(instruction));
+	}
+
+	/**
+	 * Install rule to given switches using shortest path routes.
+	 * @author kj
+	 */
+	private void installRule(IOFSwitch sw)
+	{
+		Map<Long, IOFSwitch> switches = this.getSwitches();
 		Map<Long, List<Host>> hostMap = this.getHostsAsMap();
 
 		//calculate shortest path to all other switches
-		Map<Long, Integer> routes = findBestRoutes(host.getSwitch());
+		Map<Long, Integer> routes = findBestRoutes(sw);
 		System.out.println("Bellman-Ford:");
 		System.out.println("	root: " + sw.getId());
 		System.out.println("	routes<DstIP, outPort>: "+routes);
@@ -247,23 +263,17 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 		{
 			OFAction action = new OFActionOutput(entry.getValue());
 			OFInstruction instruction = new OFInstructionApplyActions(Arrays.asList(action));
-
+			System.out.println("entryKey:"+entry.getKey());
 			//exit loop if switch does not have hosts
 			if (!hostMap.containsKey(entry.getKey()))
-				break;
-
+				continue;
 			for(Host h : hostMap.get(entry.getKey()))
 			{
+				System.out.println("s"+sw.getId()+":"+entry.getKey()+" -> "+IPv4.fromIPv4Address(h.getIPv4Address()));
 				OFMatch match = matchFromHost(h);
 				SwitchCommands.installRule(sw, this.table, SwitchCommands.DEFAULT_PRIORITY, match, Arrays.asList(instruction));
 			}
 		}
-
-		//add host to the instructions
-		OFMatch match = matchFromHost(host); 
-		OFAction action = new OFActionOutput(host.getPort());
-		OFInstruction instruction = new OFInstructionApplyActions(Arrays.asList(action));
-		SwitchCommands.installRule(sw, this.table, SwitchCommands.DEFAULT_PRIORITY, match, Arrays.asList(instruction));
 	}
 
 	/**
@@ -272,11 +282,8 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 	 */
 	private void installRule()
 	{
-		for(Host host : this.getHosts())
-		{
-			if (host.isAttachedToSwitch())
-			{ this.installRule(host); }
-		}
+		for(IOFSwitch sw : this.getSwitches().values())
+		{ this.installRule(sw); }
 	}
 
 	/**
@@ -321,8 +328,12 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 			System.out.println("	Hosts: " + this.getHostsAsMap());
 			System.out.println("	Switches: " + this.getSwitches());
 			System.out.println("	Links: " + this.getLinksAsMap());
-			System.out.println("	Table: " + this.table);
-			this.installRule();
+
+			if (host.isAttachedToSwitch())
+			{ 
+				this.installRule(); 
+				this.installRule(host);
+			}
 			/*****************************************************************/
 		}
 	}
@@ -348,7 +359,6 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 			System.out.println("	Hosts: " + this.getHostsAsMap());
 			System.out.println("	Switches: " + this.getSwitches());
 			System.out.println("	Links: " + this.getLinksAsMap());
-			System.out.println("	Table: " + this.table);
 		this.removeRule(host);
 		this.installRule();
 		/*********************************************************************/
@@ -382,7 +392,6 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 			System.out.println("	Hosts: " + this.getHostsAsMap());
 			System.out.println("	Switches: " + this.getSwitches());
 			System.out.println("	Links: " + this.getLinksAsMap());
-			System.out.println("	Table: " + this.table);
 		this.removeRule(host);
 		this.installRule();
 		/*********************************************************************/
@@ -404,7 +413,6 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 			System.out.println("	Hosts: " + this.getHostsAsMap());
 			System.out.println("	Switches: " + this.getSwitches());
 			System.out.println("	Links: " + this.getLinksAsMap());
-			System.out.println("	Table: " + this.table);
 		this.updateRule();
 		/*********************************************************************/
 	}
@@ -425,7 +433,6 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 			System.out.println("	Hosts: " + this.getHostsAsMap());
 			System.out.println("	Switches: " + this.getSwitches());
 			System.out.println("	Links: " + this.getLinksAsMap());
-			System.out.println("	Table: " + this.table);
 		this.updateRule();
 		/*********************************************************************/
 	}
