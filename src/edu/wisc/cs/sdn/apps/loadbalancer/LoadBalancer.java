@@ -124,7 +124,7 @@ public class LoadBalancer implements IFloodlightModule, IOFSwitchListener,
 		log.info(String.format("Starting %s...", MODULE_NAME));
 		this.floodlightProv.addOFSwitchListener(this);
 		this.floodlightProv.addOFMessageListener(OFType.PACKET_IN, this);
-		
+		log.info(String.format("Finisehd startup process"));
 		/*********************************************************************/
 		/* TODO: Perform other tasks, if necessary                           */
 		
@@ -146,50 +146,34 @@ public class LoadBalancer implements IFloodlightModule, IOFSwitchListener,
 
 		//Install rules to send
 
-		OFMatch rule;
-		OFAction action;
-		List<OFAction> actions;
-		OFInstruction instruct;
-		List<OFInstruction> instructions;
-		
-		for (Integer virIP: instances.keySet()) {
-			
-			rule = new OFMatch();
-			rule.setDataLayerType(OFMatch.ETH_TYPE_IPV4);
-			rule.setNetworkProtocol(OFMatch.IP_PROTO_TCP);
-			rule.setNetworkDestination(virIP);
-			
-			action = new OFActionOutput(OFPort.OFPP_CONTROLLER);
-			actions = new ArrayList<OFAction>();
-			actions.add(action);	
-			
-			instruct = new OFInstructionApplyActions(actions);
-			instructions = new ArrayList<OFInstruction>();
-			instructions.add(instruct);
-			SwitchCommands.installRule(sw, table, (short)(SwitchCommands.DEFAULT_PRIORITY + 1), rule, instructions);
-			
-			// 2. Notify the controller when a client issues an ARP request for the MAC address associated with a virtual IP
-			rule = new OFMatch();
-			rule.setDataLayerType(OFMatch.ETH_TYPE_ARP);
-			rule.setNetworkDestination(virIP);
-			
-			action = new OFActionOutput(OFPort.OFPP_CONTROLLER);
-			actions = new ArrayList<OFAction>();
-			actions.add(action);	
-			
-			instruct = new OFInstructionApplyActions(actions);
-			instructions = new ArrayList<OFInstruction>();
-			instructions.add(instruct);
-			
-			SwitchCommands.installRule(sw, table, (short)(SwitchCommands.DEFAULT_PRIORITY + 1), rule, instructions);
+		for (Integer virtualIP : instances.keySet()) {
+			// IP rules
+			log.info(String.format("Adding IP RULES"));
+			OFMatch ipMatchCriteria = new OFMatch();
+			ipMatchCriteria.setDataLayerType(OFMatch.ETH_TYPE_IPV4);
+			ipMatchCriteria.setNetworkProtocol(OFMatch.IP_PROTO_TCP);
+			ipMatchCriteria.setNetworkDestination(virtualIP);
+			OFAction ipAction = new OFActionOutput(OFPort.OFPP_CONTROLLER);
+			OFInstruction ipInstr = new OFInstructionApplyActions(Arrays.asList(ipAction));
+			SwitchCommands.installRule(sw, this.table, (short)(SwitchCommands.DEFAULT_PRIORITY+1), 
+										ipMatchCriteria, Arrays.asList(ipInstr));
 		}
 		
-		// 3. Match all other packets against the rules in the next table in the switch 
-		rule = new OFMatch();
-		instruct = new OFInstructionGotoTable(L3Routing.table);
-		instructions = new ArrayList<OFInstruction>();
-		instructions.add(instruct);
-		SwitchCommands.installRule(sw, table, SwitchCommands.DEFAULT_PRIORITY, rule, instructions);
+		// ARP rules
+		log.info(String.format("Adding ARP Handling"));
+		OFMatch arpMatchCriteria = new OFMatch();
+		arpMatchCriteria.setDataLayerType(OFMatch.ETH_TYPE_ARP);
+		//arpMatchCriteria.setNetworkDestination(virtualIP);
+		//arpMatchCriteria.setField(OFOXMFieldType.ARP_TPA, virtualIP);
+		OFAction arpAction = new OFActionOutput(OFPort.OFPP_CONTROLLER);
+		OFInstruction arpInstr = new OFInstructionApplyActions(Arrays.asList(arpAction));
+		SwitchCommands.installRule(sw, this.table, (short)(SwitchCommands.DEFAULT_PRIORITY+1), 
+												arpMatchCriteria, Arrays.asList(arpInstr));
+		
+		// all other packets to the next rule table in the switch 
+		OFInstruction l3RoutingInstr = new OFInstructionGotoTable(L3Routing.table);
+		SwitchCommands.installRule(sw, this.table, SwitchCommands.DEFAULT_PRIORITY, 
+									new OFMatch(), Arrays.asList(l3RoutingInstr));	
 		/*********************************************************************/
 		/* TODO: Install rules to send:                                      */
 		/*       (1) packets from new connections to each virtual load       */
