@@ -106,7 +106,7 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 	{ return this.knownHosts.values(); }
 
 	/**
-	 * Get a map of all known hosts in the network. SwitchID is used as the key if the host is connected to a switch.
+	 * Get a map of all known hosts in the network. Switch DPID is used as the key.
 	 * @author kj
 	 */
 	private Map<Long, List<Host>> getHostsAsMap()
@@ -164,16 +164,14 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 
 	/**
 	 * Calculate shortest path using bellman-ford.
-	 * Forwarding port to each swithes is returned as the value.
+	 * SwitchId is returned as the key.
+	 * Forwarding port to each switch is returned as the value.
 	 * @author kj
 	 */
 	private Map<Long, Integer> findBestRoutes(IOFSwitch rootSwitch)
 	{	
 		Collection<IOFSwitch> vertices = this.getSwitches().values();
 		Map<Long, List<Link>> edges = this.getLinksAsMap();
-
-		//System.out.println("vertices: "+vertices);
-		//System.out.println("edges: "+edges);
 
 		Map<Long, Integer> distance = new ConcurrentHashMap<Long, Integer>(); //distance vector
 		Map<Long, Integer> nextHop = new ConcurrentHashMap<Long, Integer>(); //nextHop with port as value
@@ -217,7 +215,7 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 	}
 
 	/**
-	 * Generate OFMatch object from ip address
+	 * Generate OFMatch object from Host object
 	 * @author kj
 	 */
 	private OFMatch matchFromHost(Host host)
@@ -229,7 +227,7 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 	}
 
 	/**
-	 * Install swicth-to-host.
+	 * Install rules to all switches
 	 * @author kj
 	 */
 	private void installRule()
@@ -239,7 +237,7 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 	}
 
 	/**
-	 * Install path to given switch using shortest path routes.
+	 * Install paths from given switch to all hosts using shortest path routes.
 	 * @author kj
 	 */
 	private void installPath(IOFSwitch sw)
@@ -253,7 +251,7 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 		// System.out.println("	root: " + sw.getId());
 		// System.out.println("	routes<DstIP, outPort>: "+routes);
 		
-		//add switch-to-switch rule
+		//add switch-to-switch rules
 		for (Map.Entry<Long, Integer> entry : routes.entrySet())
 		{
 			OFAction action = new OFActionOutput(entry.getValue());
@@ -267,7 +265,7 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 			}
 		}
 
-		//add switch-to-host rule
+		//add switch-to-host rules
 		for(Host h : hostMap.get(sw.getId()))
 		{
 			OFMatch match = matchFromHost(h);
@@ -417,9 +415,7 @@ public class L3Routing implements IFloodlightModule, IOFSwitchListener,
 		/*********************************************************************/
 		/* TODO: Update routing: change routing rules for all hosts          */
 		for (Host h : this.getHostsAsMap().get(switchId))
-		{
-			this.removeRule(h);
-		}
+		{ this.removeRule(h); } //remove rules to all host connected to the removed switch
 
 		this.updateRule();
 		/*********************************************************************/
