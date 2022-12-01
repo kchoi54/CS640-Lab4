@@ -9,11 +9,16 @@ import java.util.Map;
 import org.openflow.protocol.OFMessage;
 import org.openflow.protocol.OFPacketIn;
 import org.openflow.protocol.OFType;
+import org.openflow.protocol.OFMatch;
+import org.openflow.protocol.instruction.OFInstructionApplyActions;
+import org.openflow.protocol.instruction.OFInstruction;
+import org.openflow.protocol.instruction.OFInstructionGotoTable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import edu.wisc.cs.sdn.apps.util.ArpServer;
+
 
 import net.floodlightcontroller.core.FloodlightContext;
 import net.floodlightcontroller.core.IFloodlightProviderService;
@@ -112,6 +117,8 @@ public class LoadBalancer implements IFloodlightModule, IOFSwitchListener,
 		
 		/*********************************************************************/
 	}
+
+	
 	
 	/**
      * Event handler called when a switch joins the network.
@@ -122,6 +129,37 @@ public class LoadBalancer implements IFloodlightModule, IOFSwitchListener,
 	{
 		IOFSwitch sw = this.floodlightProv.getSwitch(switchId);
 		log.info(String.format("Switch s%d added", switchId));
+
+
+		//Install rules to send
+
+		for(Integer virtualIP: this.instances.keySet()) {
+			
+			///set data layer type to IPV4, protocol to TCP, and change destination
+			OFMatch match = new OFMatch();
+			match.setDataLayerType(OFMatch.ETH_TYPE_IPV4);
+			match.setNetworkProtocol(OFMatch.IP_PROTO_TCP);
+			match.setNetworkDestination(virtualIP);
+			
+			OFAction act = new OFActionOutput(OFPort.OFPP_CONTROLLER);
+			OFInstruction inst = new OFInstructionApplyActions(new ArrayList<OFAction>(Arrays.asList(act)));
+			
+			//install rule to switch
+			SwitchCommands.installRule(sw,this.table,SwitchCommands.DEFAULT_PRIORITY,match,new ArrayList<OFInstruction>(Arrays.asList(inst)));
+			
+
+			//send arp to controller
+			match = new OFMatch();
+			match.setDataLayerType(OFMatch.ETH_TYPE_ARP);
+			match.setNetworkDestination(virtualIP);
+			SwitchCommands.installRule(sw,this.table,SwitchCommands.DEFAULT_PRIORITY,match,new ArrayList<OFInstruction>(Arrays.asList(inst)));
+			
+		}
+		
+		OFMatch match = new OFMatch();
+		OFInstruction inst = new OFInstructionGotoTable(L3Routing.table);
+		SwitchCommands.installRule(sw,this.table,SwitchCommands.DEFAULT_PRIORITY,match,new ArrayList<OFInstruction>(Arrays.asList(inst)));
+		
 		
 		/*********************************************************************/
 		/* TODO: Install rules to send:                                      */
@@ -153,6 +191,86 @@ public class LoadBalancer implements IFloodlightModule, IOFSwitchListener,
 		Ethernet ethPkt = new Ethernet();
 		ethPkt.deserialize(pktIn.getPacketData(), 0,
 				pktIn.getPacketData().length);
+
+		//Handle ARP packets
+
+		short etherType = ethPkt.getEtherType();
+		if(etherType==Ethernet.TYPE_ARP) {
+			ARP arpPkt = (ARP)ethPkt.getPayload();
+			if(arpPkt.getOpCode()==ARP.OP_REQUEST) {
+				int requestIp = IPv4.toIPv4Address(arpPkt.getTargetProtocolAddress());
+				for(Integer vIp: this.instances.keySet())
+					if(vIp==requestIp) {
+						Ethernet ether = new Ethernet();
+						ARP arp = new ARP();
+						byte[] mac = instances.get(vIp).getVirtualMAC();
+						
+						arp.setHardwareType(ARP.HW_TYPE_ETHERNET);
+						arp.setProtocolType(ARP.PROTO_TYPE_IP);
+						arp.setHardwareAddressLength((byte)Ethernet.DATALAYER_ADDRESS_LENGTH);
+						arp.setProtocolAddressLength((byte)4);
+						arp.setOpCode(ARP.OP_REPLY);
+						arp.setSenderHardwareAddress(mac);
+						arp.setSenderProtocolAddress(vIp);
+						arp.setTargetHardwareAddress(arpPkt.getSenderHardwareAddress());
+						arp.setTargetProtocolAddress(arpPkt.getSenderProtocolAddress());
+						
+						ether.setEtherType(Ethernet.TYPE_ARP);
+						ether.setDestinationMACAddress(ethPkt.getSourceMACAddress());
+						ether.setSourceMACAddress(mac);
+						ether.setPayload(arp);
+						
+						SwitchCommands.sendPacket(sw,(short)pktIn.getInPort(),ether);
+					}					
+			}	
+		}
+
+
+
+		//handle SYNs
+
+		if(etherType==Ethernet.TYPE_IPv4) {
+			IPv4 ipv4 = (IPv4)ethPkt.getPayload();
+			if(ipv4.getProtocol() == IPv4.PROTOCOL_TCP) {
+				TCP tcp = (TCP) ipv4.getPayload();
+				if(tcp.getFlags()==TCP_FLAG_SYN) {
+					int dstVIp = ipv4.getDestinationAddress();		
+					if(instances.containsKey(dstVIp)) {
+						LoadBalancerInstance instance = instances.get(dstVIp);
+						int nxtIp = instance.getNextHostIP();
+						
+						OFMatch match = new OFMatch();
+						match.setDataLayerType(OFMatch.ETH_TYPE_IPV4);
+						match.setNetworkProtocol(OFMatch.IP_PROTO_TCP);
+						match.setNetworkDestination(dstVIp);
+						match.setNetworkSource(ipv4.getSourceAddress());
+						match.setTransportDestination(tcp.getDestinationPort());
+						match.setTransportSource(tcp.getSourcePort());
+						
+						OFAction setIP = new OFActionSetField(OFOXMFieldType.IPV4_DST,nxtIp);
+						OFAction setMAC = new OFActionSetField(OFOXMFieldType.ETH_DST,getHostMACAddress(nxtIp));
+						OFInstruction inst = new OFInstructionApplyActions(new ArrayList<OFAction>(Arrays.asList(setIP,setMAC)));
+						
+						OFInstruction instL3 = new  OFInstructionGotoTable(L3Routing.table);
+						SwitchCommands.installRule(sw,this.table,(short)(SwitchCommands.DEFAULT_PRIORITY+1),match,new ArrayList<OFInstruction>(Arrays.asList(inst,instL3)));
+						
+						match = new OFMatch();
+						match.setDataLayerType(OFMatch.ETH_TYPE_IPV4);
+						match.setNetworkProtocol(OFMatch.IP_PROTO_TCP);
+						match.setNetworkDestination(ipv4.getSourceAddress());
+						match.setNetworkSource(nxtIp);
+						match.setTransportDestination(tcp.getSourcePort());
+						match.setTransportSource(tcp.getDestinationPort());
+						
+						setIP = new OFActionSetField(OFOXMFieldType.IPV4_SRC,dstVIp);
+						setMAC = new OFActionSetField(OFOXMFieldType.ETH_SRC,instances.get(dstVIp).getVirtualMAC());
+						inst = new OFInstructionApplyActions(new ArrayList<OFAction>(Arrays.asList(setIP,setMAC)));
+						
+						SwitchCommands.installRule(sw,this.table,(short)(SwitchCommands.DEFAULT_PRIORITY+1),match,new ArrayList<OFInstruction>(Arrays.asList(inst,instL3)));
+					}
+				}
+			}
+		}
 		
 		/*********************************************************************/
 		/* TODO: Send an ARP reply for ARP requests for virtual IPs; for TCP */
