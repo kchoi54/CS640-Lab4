@@ -145,55 +145,50 @@ public class LoadBalancer implements IFloodlightModule, IOFSwitchListener,
 
 		//Install rules to send
 
-		for (int virtualHost : this.instances.keySet()){
-			OFMatch ofMatchIP = new OFMatch();
-			OFMatchField fieldEthIP = new OFMatchField(OFOXMFieldType.ETH_TYPE, Ethernet.TYPE_IPv4);
-			OFMatchField fieldIP = new OFMatchField(OFOXMFieldType.IPV4_DST, virtualIP);
-
-			ArrayList<OFMatchField> matchFieldsIP = new ArrayList<OFMatchField>();
-			matchFieldsIP.add(fieldEthIP);
-			matchFieldsIP.add(fieldIP);
-
-			ofMatchIP.setMatchFields(matchFieldsIP);
-
-			OFActionOutput ofActionOutput = new OFActionOutput();
-			ofActionOutput.setPort(OFPort.OFPP_CONTROLLER);
-
-			OFInstructionApplyActions ofActions = new OFInstructionApplyActions(Arrays.asList(ofActionOutput));
-
-			SwitchCommands.installRule(sw, this.table, SwitchCommands.DEFAULT_PRIORITY, ofMatch, Arrays.asList(ofActions));
-
+		OFMatch rule;
+		OFAction action;
+		List<OFAction> actions;
+		OFInstruction instruct;
+		List<OFInstruction> instructions;
+		
+		for (Integer virIP: instances.keySet()) {
+			
+			rule = new OFMatch();
+			rule.setDataLayerType(OFMatch.ETH_TYPE_IPV4);
+			rule.setNetworkProtocol(OFMatch.IP_PROTO_TCP);
+			rule.setNetworkDestination(virIP);
+			
+			action = new OFActionOutput(OFPort.OFPP_CONTROLLER);
+			actions = new ArrayList<OFAction>();
+			actions.add(action);	
+			
+			instruct = new OFInstructionApplyActions(actions);
+			instructions = new ArrayList<OFInstruction>();
+			instructions.add(instruct);
+			SwitchCommands.installRule(sw, table, (short)(SwitchCommands.DEFAULT_PRIORITY + 1), rule, instructions);
+			
+			// 2. Notify the controller when a client issues an ARP request for the MAC address associated with a virtual IP
+			rule = new OFMatch();
+			rule.setDataLayerType(OFMatch.ETH_TYPE_ARP);
+			rule.setNetworkDestination(virIP);
+			
+			action = new OFActionOutput(OFPort.OFPP_CONTROLLER);
+			actions = new ArrayList<OFAction>();
+			actions.add(action);	
+			
+			instruct = new OFInstructionApplyActions(actions);
+			instructions = new ArrayList<OFInstruction>();
+			instructions.add(instruct);
+			
+			SwitchCommands.installRule(sw, table, (short)(SwitchCommands.DEFAULT_PRIORITY + 1), rule, instructions);
 		}
-		//ARP rules
-		for (int virtualHost : this.instances.keySet()){
-			OFMatch ofMatchARP = new OFMatch();
-			OFMatchField fieldEthARP = new OFMatchField(OFOXMFieldType.ETH_TYPE, Ethernet.TYPE_ARP);
-			OFMatchField fieldARP = new OFMatchField(OFOXMFieldType.ARP_TPA, virtualIP);
-
-			ArrayList<OFMatchField> matchFieldsARP = new ArrayList<OFMatchField>();
-			matchFieldsARP.add(fieldEthARP);
-			matchFieldsARP.add(fieldARP);
-
-			ofMatchIP.setMatchFields(matchFieldsIP);
-
-			OFActionOutput ofActionOutput = new OFActionOutput();
-			ofActionOutput.setPort(OFPort.OFPP_CONTROLLER);
-
-			OFInstructionApplyActions ofActions = new OFInstructionApplyActions(Arrays.asList(ofActionOutput));
-
-			SwitchCommands.installRule(sw, this.table, SwitchCommands.DEFAULT_PRIORITY, ofMatch, Arrays.asList(ofActions));
-
-		}
-		//Other rules
-		OFMatch ofMatchDefault = new OFMatch();
-
-		OFInstructionGotoTable ofInstructionGotoTable = new OFInstructionGotoTable();
-		ofInstructionGotoTable.setTableId(L3Routing.table);
-
-		ArrayList<OFInstruction> listOfInstructions = new ArrayList<OFInstruction>();
-		listOfInstructions.add(ofInstructionGotoTable);
-
-		SwitchCommands.installRule(sw, this.table, (short)(SwitchCommands.DEFAULT_PRIORITY - 1), ofMatchDefault, listOfInstructions);
+		
+		// 3. Match all other packets against the rules in the next table in the switch 
+		rule = new OFMatch();
+		instruct = new OFInstructionGotoTable(L3Routing.table);
+		instructions = new ArrayList<OFInstruction>();
+		instructions.add(instruct);
+		SwitchCommands.installRule(sw, table, SwitchCommands.DEFAULT_PRIORITY, rule, instructions);
 		/*********************************************************************/
 		/* TODO: Install rules to send:                                      */
 		/*       (1) packets from new connections to each virtual load       */
