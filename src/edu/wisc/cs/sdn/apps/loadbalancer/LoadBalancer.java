@@ -1,15 +1,22 @@
 package edu.wisc.cs.sdn.apps.loadbalancer;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.Arrays;
+
+import org.openflow.protocol.OFMessage;
+import org.openflow.protocol.OFOXMFieldType;
+import org.openflow.protocol.OFPacketIn;
+import org.openflow.protocol.OFType;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import edu.wisc.cs.sdn.apps.l3routing.L3Routing;
 import edu.wisc.cs.sdn.apps.util.ArpServer;
-
 
 import edu.wisc.cs.sdn.apps.util.SwitchCommands;
 
@@ -22,19 +29,6 @@ import org.openflow.protocol.instruction.OFInstruction;
 import org.openflow.protocol.instruction.OFInstructionActions;
 import org.openflow.protocol.instruction.OFInstructionApplyActions;
 import org.openflow.protocol.instruction.OFInstructionGotoTable;
-import org.openflow.protocol.OFMessage;
-import org.openflow.protocol.OFPacketIn;
-import org.openflow.protocol.OFType;
-import org.openflow.protocol.OFMatch;
-import org.openflow.protocol.instruction.OFInstructionApplyActions;
-import org.openflow.protocol.instruction.OFInstruction;
-import org.openflow.protocol.instruction.OFInstructionGotoTable;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import edu.wisc.cs.sdn.apps.util.ArpServer;
-
 
 import net.floodlightcontroller.core.FloodlightContext;
 import net.floodlightcontroller.core.IFloodlightProviderService;
@@ -50,9 +44,6 @@ import net.floodlightcontroller.core.module.IFloodlightService;
 import net.floodlightcontroller.devicemanager.IDevice;
 import net.floodlightcontroller.devicemanager.IDeviceService;
 import net.floodlightcontroller.devicemanager.internal.DeviceManagerImpl;
-import net.floodlightcontroller.packet.Ethernet;
-import net.floodlightcontroller.util.MACAddress;
-
 
 import net.floodlightcontroller.packet.*;
 import net.floodlightcontroller.util.MACAddress;
