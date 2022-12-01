@@ -148,7 +148,7 @@ public class LoadBalancer implements IFloodlightModule, IOFSwitchListener,
 
 		for (Integer virtualIP : instances.keySet()) {
 			// IP rules
-			log.info(String.format("Adding IP RULES"));
+			log.info(String.format("Adding IP RULES for virtual IP", virtualIP));
 			OFMatch ipMatchCriteria = new OFMatch();
 			ipMatchCriteria.setDataLayerType(OFMatch.ETH_TYPE_IPV4);
 			ipMatchCriteria.setNetworkProtocol(OFMatch.IP_PROTO_TCP);
