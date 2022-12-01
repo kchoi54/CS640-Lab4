@@ -46,6 +46,8 @@ import net.floodlightcontroller.core.module.IFloodlightService;
 import net.floodlightcontroller.devicemanager.IDevice;
 import net.floodlightcontroller.devicemanager.IDeviceService;
 import net.floodlightcontroller.devicemanager.internal.DeviceManagerImpl;
+import net.floodlightcontroller.packet.IPv4;
+
 
 import net.floodlightcontroller.packet.*;
 import net.floodlightcontroller.util.MACAddress;
@@ -148,14 +150,14 @@ public class LoadBalancer implements IFloodlightModule, IOFSwitchListener,
 
 		for (Integer virtualIP : instances.keySet()) {
 			// IP rules
-			log.info(String.format("Adding IP RULES for virtual IP", virtualIP));
+			log.info(String.format("Adding IP RULES for virtual IP: %s", IPv4.fromIPv4Address(virtualIP)));
 			OFMatch ipMatchCriteria = new OFMatch();
 			ipMatchCriteria.setDataLayerType(OFMatch.ETH_TYPE_IPV4);
 			ipMatchCriteria.setNetworkProtocol(OFMatch.IP_PROTO_TCP);
 			ipMatchCriteria.setNetworkDestination(virtualIP);
 			OFAction ipAction = new OFActionOutput(OFPort.OFPP_CONTROLLER);
 			OFInstruction ipInstr = new OFInstructionApplyActions(Arrays.asList(ipAction));
-			SwitchCommands.installRule(sw, this.table, (short)(SwitchCommands.DEFAULT_PRIORITY+1), 
+			SwitchCommands.installRule(sw, this.table, (short)(SwitchCommands.DEFAULT_PRIORITY), 
 										ipMatchCriteria, Arrays.asList(ipInstr));
 		}
 		
@@ -167,12 +169,12 @@ public class LoadBalancer implements IFloodlightModule, IOFSwitchListener,
 		//arpMatchCriteria.setField(OFOXMFieldType.ARP_TPA, virtualIP);
 		OFAction arpAction = new OFActionOutput(OFPort.OFPP_CONTROLLER);
 		OFInstruction arpInstr = new OFInstructionApplyActions(Arrays.asList(arpAction));
-		SwitchCommands.installRule(sw, this.table, (short)(SwitchCommands.DEFAULT_PRIORITY+1), 
+		SwitchCommands.installRule(sw, this.table, (short)(SwitchCommands.DEFAULT_PRIORITY), 
 												arpMatchCriteria, Arrays.asList(arpInstr));
 		
 		// all other packets to the next rule table in the switch 
 		OFInstruction l3RoutingInstr = new OFInstructionGotoTable(L3Routing.table);
-		SwitchCommands.installRule(sw, this.table, SwitchCommands.DEFAULT_PRIORITY, 
+		SwitchCommands.installRule(sw, this.table, (short) 0, 
 									new OFMatch(), Arrays.asList(l3RoutingInstr));	
 		/*********************************************************************/
 		/* TODO: Install rules to send:                                      */
@@ -256,7 +258,7 @@ public class LoadBalancer implements IFloodlightModule, IOFSwitchListener,
 					OFAction cvMAC = new OFActionSetField(OFOXMFieldType.ETH_DST, this.getHostMACAddress(nextHostIP));
 					OFInstruction cvInstr =  new OFInstructionApplyActions(Arrays.asList(cvIP, cvMAC));
 		     		OFInstruction cvInstrGotoTable = new OFInstructionGotoTable(L3Routing.table);
-					SwitchCommands.installRule(sw, this.table, (short)(SwitchCommands.DEFAULT_PRIORITY + 2), cvMatchCriteria, 
+					SwitchCommands.installRule(sw, this.table, (short)(SwitchCommands.DEFAULT_PRIORITY+1), cvMatchCriteria, 
 												Arrays.asList(cvInstr, cvInstrGotoTable), SwitchCommands.NO_TIMEOUT, IDLE_TIMEOUT);
 					
 					// virtual IP --> client
@@ -271,7 +273,7 @@ public class LoadBalancer implements IFloodlightModule, IOFSwitchListener,
 					OFAction vcMAC = new OFActionSetField(OFOXMFieldType.ETH_SRC, this.instances.get(virtualIP).getVirtualMAC());
 					OFInstruction vcInstr  =  new OFInstructionApplyActions(Arrays.asList(vcIP, vcMAC));
 					OFInstruction vcInstrGotoTable = new OFInstructionGotoTable(L3Routing.table);
-					SwitchCommands.installRule(sw, this.table, (short)(SwitchCommands.DEFAULT_PRIORITY + 2), vcMatchCriteria, 
+					SwitchCommands.installRule(sw, this.table, (short)(SwitchCommands.DEFAULT_PRIORITY+1), vcMatchCriteria, 
 												Arrays.asList(vcInstr, vcInstrGotoTable), SwitchCommands.NO_TIMEOUT, IDLE_TIMEOUT);
 				}
 			}
